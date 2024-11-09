@@ -35,3 +35,7 @@ AWS環境をterraformで構築するサンプル
 ## CI/CD
 
 ## 参考
+
+https://developer.hashicorp.com/terraform
+
+https://hi1280.hatenablog.com/entry/2023/04/07/200303
