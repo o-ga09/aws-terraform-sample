@@ -1,0 +1,163 @@
+# ================================
+# General Configuration
+# ================================
+# Environment: "production", "staging", or "development"
+aws_region   = "ap-northeast-1"
+project_name = "aws-terraform-sample"
+environment  = "production"  # CHANGE THIS FOR EACH ENVIRONMENT
+
+# ================================
+# Terraform State Configuration
+# ================================
+# NOTE: S3バックエンド設定
+# 以下の手順でS3にStateを管理します：
+# 1. bootstrap/ディレクトリで `terraform apply` を実行してS3バケットとDynamoDBを作成
+# 2. bootstrap実行後、以下のコマンドで各環境を初期化：
+#    cd environments/production
+#    terraform init -backend-config="bucket=terraform-state-ACCOUNT_ID-ap-northeast-1"
+#    ACCOUNT_ID はAWSアカウントIDに置き換えてください
+# 3. その後、通常通り terraform plan/apply を実行
+
+# ================================
+# VPC Configuration
+# ================================
+vpc_cidr                = "10.0.0.0/16"
+public_subnet_cidrs     = ["10.0.1.0/24", "10.0.2.0/24"]
+private_subnet_cidrs    = ["10.0.10.0/24", "10.0.11.0/24"]
+availability_zones      = ["ap-northeast-1a", "ap-northeast-1c"]
+db_subnet_cidrs         = ["10.0.20.0/24", "10.0.21.0/24"]
+management_subnet_cidrs = ["10.0.30.0/24", "10.0.31.0/24"]
+
+# ================================
+# ALB Configuration
+# ================================
+enable_https               = false  # Set to true when you have a certificate
+certificate_arn            = ""     # Update with your certificate ARN
+enable_deletion_protection = true   # Set to false for development
+enable_access_logs         = false  # Set to true for production
+access_logs_s3_bucket      = ""     # Update with your S3 bucket
+
+# ================================
+# ECR Configuration
+# ================================
+repository_name         = "aws-terraform-sample-repo"
+image_tag_mutability    = "MUTABLE"
+scan_on_push            = true
+enable_lifecycle_policy = true
+image_retention_count   = 10
+encryption_type         = "AES256"
+
+# ================================
+# ECS Configuration
+# ================================
+container_port = 80
+
+# 【重要】コンテナイメージ指定方法（3つのオプション）
+# 
+# Option A: ECR URLを自動的に使用（推奨）
+use_ecr_url = true
+# この場合、以下の registry / repository は ECRモジュールの出力から自動取得
+# tfvars.example では設定不要です
+container_image            = ""
+container_image_registry   = ""
+container_image_repository = ""
+container_image_tag        = "latest"  # CI/CDから動的に "production:commit_hash" を指定
+#
+# Option B: レジストリ/リポジトリを手動指定
+# use_ecr_url = false
+# container_image            = ""
+# container_image_registry   = "123456789012.dkr.ecr.ap-northeast-1.amazonaws.com"
+# container_image_repository = "aws-terraform-sample-repo"
+# container_image_tag        = "latest"
+#
+# Option C: 完全なイメージURI を指定（その他のレジストリ使用時）
+# container_image = "123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/aws-terraform-sample-repo:latest"
+# use_ecr_url = false
+# container_image_registry   = ""
+# container_image_repository = ""
+
+container_name        = "app"
+replica_count         = 2      # Recommendations: production=2, staging=2, development=1
+task_cpu              = 512    # Recommendations: production=512, staging=512, development=256
+task_memory           = 1024   # Recommendations: production=1024, staging=1024, development=512
+log_retention_days    = 30     # Recommendations: production=30, staging=14, development=7
+enable_auto_scaling   = true   # Set to false for development
+ecs_task_max_capacity = 4      # Recommendations: production=4, staging=4, development=2
+ecs_task_min_capacity = 2      # Recommendations: production=2, staging=2, development=1
+
+# Optional: Container environment variables
+container_environment = {
+  # "ENVIRONMENT" = "production"
+  # "LOG_LEVEL"   = "info"
+}
+
+# ================================
+# RDS Configuration
+# ================================
+database_name   = "aws-terraform-sample-db"
+master_username = "terraform_sample_user"
+
+# 【重要】DBパスワード管理方法（3つのオプション）
+#
+# Option A: AWS Systems Manager Parameter Store（推奨）
+use_parameter_store           = true
+parameter_store_password_name = "/database/production/password"  # セキュアなパラメータで事前保存
+use_secrets_manager           = false
+secrets_manager_secret_name   = null
+master_password               = null
+#
+# Option B: AWS Secrets Manager
+# use_parameter_store = false
+# parameter_store_password_name = null
+# use_secrets_manager = true
+# secrets_manager_secret_name = "rds/production/password"  # JSON形式: {"password":"..."}
+# master_password = null
+#
+# Option C: プレーンテキスト（開発環境のみ、本番環境では非推奨）
+# use_parameter_store = false
+# parameter_store_password_name = null
+# use_secrets_manager = false
+# secrets_manager_secret_name = null
+# master_password = "ChangeMe!2024"  # 強力なパスワードを設定
+
+engine_version   = "8.0.mysql_aurora.3.02.0"
+is_serverless    = false  # Set to true for Aurora Serverless v2
+instance_class   = "db.t4g.small"
+cluster_size     = 2      # Recommendations: production=2, staging=2, development=1
+min_capacity     = 0.5    # For Serverless v2, must be between 0.5 and 128
+max_capacity     = 1      # For Serverless v2, must be between 0.5 and 128
+backup_retention_period = 30  # Recommendations: production=30, staging=14, development=7
+preferred_backup_window = "03:00-04:00"
+
+# ================================
+# Environment-Specific Recommendations
+# ================================
+#
+# PRODUCTION:
+#   vpc_cidr: 独立したVPCを推奨
+#   enable_https: true (ACM証明書が必要)
+#   enable_deletion_protection: true
+#   enable_access_logs: true (S3バケット必要)
+#   is_serverless: false (オンデマンドプロビジョニング推奨)
+#   backup_retention_period: 30
+#   use_parameter_store or use_secrets_manager: true
+#
+# STAGING:
+#   vpc_cidr: 独立したVPCを推奨 (productionと分離)
+#   enable_https: false (必要に応じてtrue)
+#   enable_deletion_protection: true
+#   is_serverless: false
+#   backup_retention_period: 14
+#   use_parameter_store or use_secrets_manager: true
+#
+# DEVELOPMENT:
+#   vpc_cidr: 他環境と共用可能
+#   enable_https: false
+#   enable_deletion_protection: false (削除しやすく)
+#   is_serverless: true (低コスト)
+#   backup_retention_period: 7
+#   master_password: プレーンテキスト可能
+
+cluster_size            = 2
+backup_retention_period = 30
+preferred_backup_window = "03:00-04:00"
