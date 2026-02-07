@@ -1,0 +1,377 @@
+name: Terraform Multi-Environment
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  TF_VERSION: 1.6.0
+  AWS_REGION: ap-northeast-1
+
+jobs:
+  setup:
+    name: Detect Changed Environments
+    runs-on: ubuntu-latest
+    outputs:
+      environments: ${{ steps.detect-envs.outputs.environments }}
+      has-changes: ${{ steps.detect-envs.outputs.has-changes }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect environments from changed files
+        id: detect-envs
+        run: |
+            # 変更ファイルから環境を判定
+            CHANGED_FILES=$(git diff --name-only HEAD~1...HEAD)
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
+            
+            ENVS=()
+            
+            # dev 環境の変更を確認
+            if echo "$CHANGED_FILES" | grep -qE "^AWS/environments/(dev|development)/"; then
+              ENVS+=("dev")
+              echo "Detected dev environment changes"
+            fi
+            
+            # stg 環境の変更を確認
+            if echo "$CHANGED_FILES" | grep -qE "^AWS/environments/(stg|staging)/"; then
+              ENVS+=("stg")
+              echo "Detected stg environment changes"
+            fi
+            
+            # prod 環境の変更を確認
+            if echo "$CHANGED_FILES" | grep -qE "^AWS/environments/(prod|production)/"; then
+              ENVS+=("prod")
+              echo "Detected prod environment changes"
+            fi
+            
+            # 環境が検出されない場合、終了コード0で終了
+            if [[ ${#ENVS[@]} -eq 0 ]]; then
+              echo "No environment-specific changes detected"
+              echo "environments=[]" >> $GITHUB_OUTPUT
+              echo "has-changes=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            
+            # JSON配列に変換
+            if [[ ${#ENVS[@]} -eq 0 ]]; then
+              echo "No environment-specific changes detected"
+              echo "environments=[]" >> $GITHUB_OUTPUT
+              echo "has-changes=false" >> $GITHUB_OUTPUT
+            else
+              JSON_ENVS=$(printf '%s\n' "${ENVS[@]}" | jq -R . | jq -s .)
+              echo "environments=${JSON_ENVS}" >> $GITHUB_OUTPUT
+              echo "has-changes=true" >> $GITHUB_OUTPUT
+            fi
+
+  validate:
+    name: Validate Terraform
+    needs: [setup]
+    runs-on: ubuntu-latest
+    if: needs.setup.outputs.has-changes == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive AWS/
+      
+      - name: Validate Changed Environments
+        run: |
+          ENVS='${{ needs.setup.outputs.environments }}'
+          for env in $(echo "$ENVS" | jq -r '.[]'); do
+            echo "Validating $env..."
+            cd AWS/environments/$env
+            terraform init -backend=false
+            terraform validate
+            cd ../../..
+          done
+
+  plan:
+    name: Plan
+    needs: [setup, validate]
+    runs-on: ubuntu-latest
+    if: needs.setup.outputs.has-changes == 'true'
+    strategy:
+      matrix:
+        environment: ${{ fromJson(needs.setup.outputs.environments) }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets[format('AWS_ROLE_{0}', matrix.environment)] }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      
+      - name: Terraform Init
+        working-directory: AWS/environments/${{ matrix.environment }}
+        run: terraform init
+      
+      - name: Terraform Plan
+        working-directory: AWS/environments/${{ matrix.environment }}
+        run: |
+          terraform plan -out=tfplan
+          terraform show -json tfplan > plan.json
+      
+      - name: Upload Plan
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.environment }}-plan
+          path: |
+            AWS/environments/${{ matrix.environment }}/tfplan
+            AWS/environments/${{ matrix.environment }}/plan.json
+
+  apply-dev:
+    name: Apply to Dev
+    needs: [setup, plan]
+    if: |
+      needs.setup.outputs.has-changes == 'true' &&
+      contains(fromJson(needs.setup.outputs.environments), 'development')
+    runs-on: ubuntu-latest
+    environment: development
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_development }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      
+      - name: Download Plan
+        uses: actions/download-artifact@v3
+        with:
+          name: development-plan
+          path: AWS/environments/development
+      
+      - name: Terraform Init
+        working-directory: AWS/environments/development
+        run: terraform init
+      
+      - name: Terraform Apply
+        working-directory: AWS/environments/development
+        run: terraform apply -auto-approve tfplan
+      
+      - name: Notify Success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: '✅ Development deployment successful!'
+            });
+      
+      - name: Notify Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: '❌ Development deployment failed! Please check the logs.'
+            });
+
+  apply-stg:
+    name: Apply to Staging
+    needs: [setup, plan]
+    if: |
+      needs.setup.outputs.has-changes == 'true' &&
+      contains(fromJson(needs.setup.outputs.environments), 'staging')
+    runs-on: ubuntu-latest
+    environment: staging
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_staging }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      
+      - name: Download Plan
+        uses: actions/download-artifact@v3
+        with:
+          name: staging-plan
+          path: AWS/environments/staging
+      
+      - name: Terraform Init
+        working-directory: AWS/environments/staging
+        run: terraform init
+      
+      - name: Terraform Apply
+        working-directory: AWS/environments/staging
+        run: terraform apply -auto-approve tfplan
+      
+      - name: Notify Success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: '✅ Staging deployment successful!'
+            });
+      
+      - name: Notify Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: '❌ Staging deployment failed! Please check the logs.'
+            });
+
+  apply-prod:
+    name: Apply to Production
+    needs: [setup, plan]
+    if: |
+      needs.setup.outputs.has-changes == 'true' &&
+      contains(fromJson(needs.setup.outputs.environments), 'production')
+    runs-on: ubuntu-latest
+    environment: production  # GitHub環境で手動承認が必要
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_production }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      
+      - name: Download Plan
+        uses: actions/download-artifact@v3
+        with:
+          name: production-plan
+          path: AWS/environments/production
+      
+      - name: Terraform Init
+        working-directory: AWS/environments/production
+        run: terraform init
+      
+      - name: Terraform Apply
+        working-directory: AWS/environments/production
+        run: terraform apply -auto-approve tfplan
+      
+      - name: Notify Success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: '✅ Production deployment successful!'
+            });
+      
+      - name: Notify Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: '❌ Production deployment failed! Please check the logs.'
+            });
+
+  security-scan:
+    name: Security Scan
+    needs: [setup]
+    runs-on: ubuntu-latest
+    if: needs.setup.outputs.has-changes == 'true' && github.event_name != 'repository_dispatch'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.0
+        with:
+          soft_fail: true
+          working_directory: AWS
+      
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: AWS/
+          framework: terraform
+          soft_fail: true
+
+  cost-estimation:
+    name: Cost Estimation
+    needs: [setup]
+    runs-on: ubuntu-latest
+    if: needs.setup.outputs.has-changes == 'true' && github.event_name == 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v2
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+      
+      - name: Generate cost estimate
+        run: |
+          ENVS='${{ needs.setup.outputs.environments }}'
+          for env in $(echo "$ENVS" | jq -r '.[]'); do
+            cd AWS/environments/$env
+            infracost breakdown --path . --format json --out-file /tmp/${env}-cost.json
+            cd ../../..
+          done
+      
+      - name: Post cost comment
+        uses: infracost/actions/comment@v1
+        with:
+          path: /tmp/*-cost.json
+          behavior: update

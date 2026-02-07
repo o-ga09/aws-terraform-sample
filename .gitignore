@@ -4,6 +4,7 @@
 *.tfstate.*
 *.tfvars
 !terraform.tfvars.example
+!terraform.tfvars
 .terraform.lock.hcl
 
 # IDE / Editor
