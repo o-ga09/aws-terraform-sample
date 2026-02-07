@@ -64,7 +64,7 @@ jobs:
               echo "environments=[]" >> $GITHUB_OUTPUT
               echo "has-changes=false" >> $GITHUB_OUTPUT
             else
-              JSON_ENVS=$(printf '%s\n' "${ENVS[@]}" | jq -R . | jq -s .)
+              JSON_ENVS=$(printf '%s\n' "${ENVS[@]}" | jq -R . | jq -s -c .)
               echo "environments=${JSON_ENVS}" >> $GITHUB_OUTPUT
               echo "has-changes=true" >> $GITHUB_OUTPUT
             fi
