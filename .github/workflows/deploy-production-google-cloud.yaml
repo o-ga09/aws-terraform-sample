@@ -1,0 +1,19 @@
+name: Terraform Multi-Environment For Google Cloud
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    
+jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: 仮
+        run: |
+          echo "未実装"
