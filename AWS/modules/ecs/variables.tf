@@ -79,7 +79,8 @@ variable "ecs_security_group_id" {
 
 variable "target_group_arn" {
   type        = string
-  description = "ARN of the ALB target group"
+  description = "ARN of the ALB target group (optional, leave empty if not using ALB)"
+  default     = ""
 }
 
 variable "container_environment" {

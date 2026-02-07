@@ -49,36 +49,34 @@ encryption_type         = "AES256"
 # ================================
 # ECS Configuration
 # ================================
-container_port = 80
+# Frontend ECS Service
+frontend_container_port        = 3000
+frontend_container_name        = "frontend"
+frontend_container_image       = "" # Leave empty to use ECR repository (recommended)
+frontend_container_image_tag   = "latest"
+frontend_use_ecr_url           = true
+frontend_replica_count         = 2
+frontend_task_cpu              = 512
+frontend_task_memory           = 1024
+frontend_enable_auto_scaling   = true
+frontend_ecs_task_max_capacity = 4
+frontend_ecs_task_min_capacity = 2
+frontend_container_environment = {}
 
-# Use ECR repository URL automatically (recommended)
-use_ecr_url = true
+# Backend ECS Service  
+backend_container_port        = 8080
+backend_container_name        = "backend"
+backend_container_image       = "" # Leave empty to use ECR repository (recommended)
+backend_container_image_tag   = "latest"
+backend_replica_count         = 2
+backend_task_cpu              = 512
+backend_task_memory           = 1024
+backend_enable_auto_scaling   = true
+backend_ecs_task_max_capacity = 4
+backend_ecs_task_min_capacity = 2
+backend_container_environment = {}
 
-# Option 1: Specify full image URI directly (overrides use_ecr_url)
-# Example: container_image = "123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/myapp:latest"
-container_image = ""
-
-# Option 2: Specify image components separately
-# If use_ecr_url is true and these are empty, they are auto-populated from ECR module
-# You can override them here if needed (e.g., for multi-registry setup)
-container_image_registry   = ""       # Auto-filled from ECR if use_ecr_url=true
-container_image_repository = ""       # Auto-filled from ECR if use_ecr_url=true
-container_image_tag        = "latest" # e.g., "production:abc123def456" set from CI/CD
-
-container_name        = "app"
-replica_count         = 2
-task_cpu              = 512
-task_memory           = 1024
-log_retention_days    = 30
-enable_auto_scaling   = true
-ecs_task_max_capacity = 4
-ecs_task_min_capacity = 2
-
-# Optional: Container environment variables
-container_environment = {
-  # "ENVIRONMENT" = "production"
-  # "LOG_LEVEL"   = "info"
-}
+log_retention_days = 30
 
 # ================================
 # RDS Configuration

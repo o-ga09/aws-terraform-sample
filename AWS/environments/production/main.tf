@@ -64,14 +64,14 @@ resource "aws_security_group" "alb" {
   }
 }
 
-resource "aws_security_group" "ecs" {
-  name        = "${var.project_name}-ecs-sg"
-  description = "Security group for ECS tasks"
+resource "aws_security_group" "frontend" {
+  name        = "${var.project_name}-frontend-ecs-sg"
+  description = "Security group for frontend ECS tasks"
   vpc_id      = module.vpc.vpc_id
 
   ingress {
-    from_port       = 0
-    to_port         = 65535
+    from_port       = var.frontend_container_port
+    to_port         = var.frontend_container_port
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
@@ -84,7 +84,32 @@ resource "aws_security_group" "ecs" {
   }
 
   tags = {
-    Name        = "${var.project_name}-ecs-sg"
+    Name        = "${var.project_name}-frontend-ecs-sg"
+    Environment = var.environment
+  }
+}
+
+resource "aws_security_group" "backend" {
+  name        = "${var.project_name}-backend-ecs-sg"
+  description = "Security group for backend ECS tasks (internal only)"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    from_port       = var.backend_container_port
+    to_port         = var.backend_container_port
+    protocol        = "tcp"
+    security_groups = [aws_security_group.frontend.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "${var.project_name}-backend-ecs-sg"
     Environment = var.environment
   }
 }
@@ -98,7 +123,7 @@ resource "aws_security_group" "rds" {
     from_port       = 3306
     to_port         = 3306
     protocol        = "tcp"
-    security_groups = [aws_security_group.ecs.id]
+    security_groups = [aws_security_group.backend.id]
   }
 
   egress {
@@ -152,47 +177,68 @@ module "ecr" {
 # ================================
 # Local Variables for ECS/RDS Configuration
 # ================================
-# Extract registry URL and repository name from ECR repository_url
-# ECR repository_url format: {registry_id}.dkr.ecr.{region}.amazonaws.com/{repository_name}
 locals {
-  # If container_image_registry is not specified, extract from ECR module output
-  container_registry = var.container_image_registry != "" ? var.container_image_registry : (
-    var.use_ecr_url ? split("/", module.ecr.repository_url)[0] : ""
-  )
-
-  # If container_image_repository is not specified, use the ECR repository name
-  container_repository = var.container_image_repository != "" ? var.container_image_repository : (
-    var.use_ecr_url ? module.ecr.repository_name : ""
+  # Frontend container image configuration
+  frontend_container_image = var.frontend_container_image != "" ? var.frontend_container_image : (
+    var.frontend_use_ecr_url ? "${split("/", module.ecr.repository_url)[0]}/${module.ecr.repository_name}:${var.frontend_container_image_tag}" : "nginx:latest"
   )
 }
 
 
 # ================================
-# ECS Module
+# Frontend ECS Service
 # ================================
-module "ecs" {
+module "ecs_frontend" {
   source = "../../modules/ecs"
 
-  project_name               = var.project_name
+  project_name               = "${var.project_name}-frontend"
   environment                = var.environment
-  container_port             = var.container_port
-  container_image            = var.container_image
-  container_image_registry   = local.container_registry
-  container_image_repository = local.container_repository
-  container_image_tag        = var.container_image_tag
-  container_name             = var.container_name
-  replica_count              = var.replica_count
-  task_cpu                   = var.task_cpu
-  task_memory                = var.task_memory
+  container_port             = var.frontend_container_port
+  container_image            = local.frontend_container_image
+  container_image_registry   = ""
+  container_image_repository = ""
+  container_image_tag        = ""
+  container_name             = var.frontend_container_name
+  replica_count              = var.frontend_replica_count
+  task_cpu                   = var.frontend_task_cpu
+  task_memory                = var.frontend_task_memory
   vpc_id                     = module.vpc.vpc_id
   private_subnet_ids         = module.vpc.private_subnet_ids
-  ecs_security_group_id      = aws_security_group.ecs.id
+  ecs_security_group_id      = aws_security_group.frontend.id
   target_group_arn           = module.alb.target_group_arn
-  container_environment      = var.container_environment
+  container_environment      = var.frontend_container_environment
   log_retention_days         = var.log_retention_days
-  enable_auto_scaling        = var.enable_auto_scaling
-  max_capacity               = var.ecs_task_max_capacity
-  min_capacity               = var.ecs_task_min_capacity
+  enable_auto_scaling        = var.frontend_enable_auto_scaling
+  max_capacity               = var.frontend_ecs_task_max_capacity
+  min_capacity               = var.frontend_ecs_task_min_capacity
+}
+
+# ================================
+# Backend ECS Service
+# ================================
+module "ecs_backend" {
+  source = "../../modules/ecs"
+
+  project_name               = "${var.project_name}-backend"
+  environment                = var.environment
+  container_port             = var.backend_container_port
+  container_image            = var.backend_container_image
+  container_image_registry   = ""
+  container_image_repository = ""
+  container_image_tag        = var.backend_container_image_tag
+  container_name             = var.backend_container_name
+  replica_count              = var.backend_replica_count
+  task_cpu                   = var.backend_task_cpu
+  task_memory                = var.backend_task_memory
+  vpc_id                     = module.vpc.vpc_id
+  private_subnet_ids         = module.vpc.private_subnet_ids
+  ecs_security_group_id      = aws_security_group.backend.id
+  target_group_arn           = ""
+  container_environment      = var.backend_container_environment
+  log_retention_days         = var.log_retention_days
+  enable_auto_scaling        = var.backend_enable_auto_scaling
+  max_capacity               = var.backend_ecs_task_max_capacity
+  min_capacity               = var.backend_ecs_task_min_capacity
 }
 
 # ================================

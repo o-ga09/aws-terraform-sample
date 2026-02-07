@@ -65,24 +65,44 @@ output "ecr_repository_arn" {
 # ================================
 # ECS Outputs
 # ================================
-output "ecs_cluster_name" {
-  value       = module.ecs.cluster_name
-  description = "Name of the ECS cluster"
+output "frontend_ecs_cluster_name" {
+  value       = module.ecs_frontend.cluster_name
+  description = "Name of the frontend ECS cluster"
 }
 
-output "ecs_cluster_id" {
-  value       = module.ecs.cluster_id
-  description = "ID of the ECS cluster"
+output "frontend_ecs_cluster_id" {
+  value       = module.ecs_frontend.cluster_id
+  description = "ID of the frontend ECS cluster"
 }
 
-output "ecs_service_name" {
-  value       = module.ecs.service_name
-  description = "Name of the ECS service"
+output "frontend_ecs_service_name" {
+  value       = module.ecs_frontend.service_name
+  description = "Name of the frontend ECS service"
 }
 
-output "cloudwatch_log_group" {
-  value       = module.ecs.log_group_name
-  description = "Name of the CloudWatch log group"
+output "frontend_cloudwatch_log_group" {
+  value       = module.ecs_frontend.log_group_name
+  description = "Name of the frontend CloudWatch log group"
+}
+
+output "backend_ecs_cluster_name" {
+  value       = module.ecs_backend.cluster_name
+  description = "Name of the backend ECS cluster"
+}
+
+output "backend_ecs_cluster_id" {
+  value       = module.ecs_backend.cluster_id
+  description = "ID of the backend ECS cluster"
+}
+
+output "backend_ecs_service_name" {
+  value       = module.ecs_backend.service_name
+  description = "Name of the backend ECS service"
+}
+
+output "backend_cloudwatch_log_group" {
+  value       = module.ecs_backend.log_group_name
+  description = "Name of the backend CloudWatch log group"
 }
 
 # ================================
@@ -116,9 +136,14 @@ output "alb_security_group_id" {
   description = "ALB security group ID"
 }
 
-output "ecs_security_group_id" {
-  value       = aws_security_group.ecs.id
-  description = "ECS security group ID"
+output "frontend_ecs_security_group_id" {
+  value       = aws_security_group.frontend.id
+  description = "Frontend ECS security group ID"
+}
+
+output "backend_ecs_security_group_id" {
+  value       = aws_security_group.backend.id
+  description = "Backend ECS security group ID"
 }
 
 output "rds_security_group_id" {
