@@ -1,4 +1,4 @@
-name: Terraform Multi-Environment
+name: Terraform Multi-Environment For AWS
 
 on:
   push:
