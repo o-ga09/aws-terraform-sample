@@ -1,2 +1,23 @@
-.DS_Store
+# Terraform files
+**/.terraform*
+*.tfstate
+*.tfstate.*
+*.tfvars
+!terraform.tfvars.example
+.terraform.lock.hcl
+
+# IDE / Editor
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Local environment variables
+.env
+.env.local
