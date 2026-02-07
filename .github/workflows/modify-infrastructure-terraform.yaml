@@ -11,6 +11,15 @@ env:
   AWS_REGION: ap-northeast-1
 
 jobs:
+  setup:
+    name: 仮
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder Step
+        run: |
+          echo "This is a placeholder job to define outputs."
+          exit 0
+
   validate:
     name: Validate Terraform
     needs: [setup]
